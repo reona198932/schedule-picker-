@@ -1,5 +1,4 @@
 'use client';
-
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,7 +13,7 @@ interface CalendarEvent {
 
 export interface Selection {
   id: string;
-  day: number; // 0-6
+  day: number;
   startSlot: number;
   endSlot: number;
   meetingType: 'online' | 'inperson';
@@ -30,22 +29,22 @@ interface CalendarProps {
 
 const START_HOUR = 8;
 const END_HOUR = 22;
-const SLOTS = (END_HOUR - START_HOUR) * 2; // 30min slots
+const SLOTS = (END_HOUR - START_HOUR) * 2;
 const SLOT_HEIGHT = 28;
 
 export default function Calendar({ selections, onSelectionsChange, defaultMeetingType, weekOffset }: CalendarProps) {
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const { calendarAccessToken } = useAuth();
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragDay, setDragDay] = useState(-1);
   const [dragStart, setDragStart] = useState(-1);
   const [dragEnd, setDragEnd] = useState(-1);
+  const [popupEvent, setPopupEvent] = useState<CalendarEvent | null>(null);
+  const [popupPos, setPopupPos] = useState({ x: 0, y: 0 });
   const gridRef = useRef<HTMLDivElement>(null);
-
   const dayNames = [t.sun, t.mon, t.tue, t.wed, t.thu, t.fri, t.sat];
 
-  // 週の日付を計算
   const getWeekDates = useCallback(() => {
     const now = new Date();
     const dayOfWeek = now.getDay();
@@ -60,32 +59,32 @@ export default function Calendar({ selections, onSelectionsChange, defaultMeetin
 
   const weekDates = getWeekDates();
 
-  // Calendar APIからイベント取得
   useEffect(() => {
     if (!calendarAccessToken) return;
     const timeMin = weekDates[0].toISOString();
     const lastDay = new Date(weekDates[6]);
     lastDay.setHours(23, 59, 59);
     const timeMax = lastDay.toISOString();
-
     fetch(`/api/calendar?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`, {
       headers: { 'X-Google-Access-Token': calendarAccessToken },
     })
       .then((r) => r.json())
-      .then((data) => {
-        if (data.events) setCalendarEvents(data.events);
-      })
+      .then((data) => { if (data.events) setCalendarEvents(data.events); })
       .catch(console.error);
   }, [calendarAccessToken, weekOffset]);
 
-  // 特定のスロットにイベントがあるか
+  useEffect(() => {
+    const handleClick = () => setPopupEvent(null);
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, []);
+
   function getEventAtSlot(dayIndex: number, slotIndex: number): CalendarEvent | null {
     const date = weekDates[dayIndex];
     const slotTime = new Date(date);
     slotTime.setHours(START_HOUR + Math.floor(slotIndex / 2), (slotIndex % 2) * 30, 0, 0);
     const slotEnd = new Date(slotTime);
     slotEnd.setMinutes(slotEnd.getMinutes() + 30);
-
     for (const event of calendarEvents) {
       const evStart = new Date(event.start);
       const evEnd = new Date(event.end);
@@ -94,14 +93,18 @@ export default function Calendar({ selections, onSelectionsChange, defaultMeetin
     return null;
   }
 
-  // 選択中のスロットか
-  function isSelected(dayIndex: number, slotIndex: number): Selection | null {
-    return selections.find((s) =>
-      s.day === dayIndex && slotIndex >= s.startSlot && slotIndex <= s.endSlot
-    ) || null;
+  function formatEventTime(event: CalendarEvent): string {
+    if (event.allDay) return '終日';
+    const start = new Date(event.start);
+    const end = new Date(event.end);
+    const fmt = (d: Date) => `${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
+    return `${fmt(start)} 〜 ${fmt(end)}`;
   }
 
-  // ドラッグ中のスロットか
+  function isSelected(dayIndex: number, slotIndex: number): Selection | null {
+    return selections.find((s) => s.day === dayIndex && slotIndex >= s.startSlot && slotIndex <= s.endSlot) || null;
+  }
+
   function isDragSelected(dayIndex: number, slotIndex: number): boolean {
     if (!isDragging || dayIndex !== dragDay) return false;
     const min = Math.min(dragStart, dragEnd);
@@ -135,7 +138,6 @@ export default function Calendar({ selections, onSelectionsChange, defaultMeetin
     setIsDragging(false);
     const min = Math.min(dragStart, dragEnd);
     const max = Math.max(dragStart, dragEnd);
-
     const newSel: Selection = {
       id: `${Date.now()}-${Math.random()}`,
       day: dragDay,
@@ -144,8 +146,13 @@ export default function Calendar({ selections, onSelectionsChange, defaultMeetin
       meetingType: defaultMeetingType,
       date: weekDates[dragDay],
     };
-
     onSelectionsChange([...selections, newSel]);
+  }
+
+  function handleEventClick(event: CalendarEvent, e: React.MouseEvent) {
+    e.stopPropagation();
+    setPopupEvent(event);
+    setPopupPos({ x: e.clientX, y: e.clientY });
   }
 
   function formatTime(slot: number): string {
@@ -155,13 +162,12 @@ export default function Calendar({ selections, onSelectionsChange, defaultMeetin
   }
 
   function formatDateHeader(date: Date, dayIndex: number): string {
-    const dayName = dayNames[(dayIndex + 1) % 7]; // Monday start
+    const dayName = dayNames[(dayIndex + 1) % 7];
     const month = date.getMonth() + 1;
     const day = date.getDate();
     return `${month}/${day}(${dayName})`;
   }
 
-  // Touch support
   function handleTouchStart(dayIndex: number, slotIndex: number, e: React.TouchEvent) {
     e.preventDefault();
     setIsDragging(true);
@@ -177,35 +183,27 @@ export default function Calendar({ selections, onSelectionsChange, defaultMeetin
     setDragEnd(slot);
   }
 
-  function handleTouchEnd() {
-    handleMouseUp();
-  }
+  function handleTouchEnd() { handleMouseUp(); }
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      {/* Day headers */}
+    <div style={{ overflowX: 'auto', position: 'relative' }}>
       <div style={{ display: 'grid', gridTemplateColumns: `56px repeat(7, 1fr)`, gap: 0 }}>
         <div style={{ padding: '8px 4px', fontSize: '12px', color: '#999' }} />
         {weekDates.map((date, i) => {
           const isToday = date.toDateString() === new Date().toDateString();
           return (
-            <div
-              key={i}
-              style={{
-                padding: '8px 4px', textAlign: 'center', fontSize: '12px', fontWeight: 600,
-                color: isToday ? '#4285f4' : '#333',
-                borderBottom: isToday ? '2px solid #4285f4' : '1px solid #eee',
-              }}
-            >
+            <div key={i} style={{
+              padding: '8px 4px', textAlign: 'center', fontSize: '12px', fontWeight: 600,
+              color: isToday ? '#4285f4' : '#333',
+              borderBottom: isToday ? '2px solid #4285f4' : '1px solid #eee',
+            }}>
               {formatDateHeader(date, i)}
             </div>
           );
         })}
       </div>
 
-      {/* Time grid */}
-      <div
-        ref={gridRef}
+      <div ref={gridRef}
         style={{ display: 'grid', gridTemplateColumns: `56px repeat(7, 1fr)`, position: 'relative', userSelect: 'none' }}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -215,18 +213,14 @@ export default function Calendar({ selections, onSelectionsChange, defaultMeetin
       >
         {Array.from({ length: SLOTS }, (_, slotIdx) => (
           <>
-            {/* Time label */}
-            <div
-              key={`t-${slotIdx}`}
-              style={{
-                height: SLOT_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-                paddingRight: '8px', fontSize: '11px', color: '#999',
-                borderTop: slotIdx % 2 === 0 ? '1px solid #eee' : 'none',
-              }}
-            >
+            <div key={`t-${slotIdx}`} style={{
+              height: SLOT_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+              paddingRight: '8px', fontSize: '11px', color: '#999',
+              borderTop: slotIdx % 2 === 0 ? '1px solid #eee' : 'none',
+            }}>
               {slotIdx % 2 === 0 ? formatTime(slotIdx) : ''}
             </div>
-            {/* Day columns */}
+
             {Array.from({ length: 7 }, (_, dayIdx) => {
               const event = getEventAtSlot(dayIdx, slotIdx);
               const sel = isSelected(dayIdx, slotIdx);
@@ -242,25 +236,36 @@ export default function Calendar({ selections, onSelectionsChange, defaultMeetin
                 bg = isOnline ? 'rgba(26, 115, 232, 0.12)' : 'rgba(232, 113, 10, 0.12)';
                 borderLeft = isOnline ? '3px solid #1a73e8' : '3px solid #e8710a';
               } else if (dragSel) {
-                bg = defaultMeetingType === 'online'
-                  ? 'rgba(26, 115, 232, 0.08)'
-                  : 'rgba(232, 113, 10, 0.08)';
+                bg = defaultMeetingType === 'online' ? 'rgba(26, 115, 232, 0.08)' : 'rgba(232, 113, 10, 0.08)';
               }
 
+              const isEventFirstSlot = event && (() => {
+                const evStart = new Date(event.start);
+                const evStartSlot = Math.floor((evStart.getHours() - START_HOUR) * 2 + evStart.getMinutes() / 30);
+                return slotIdx === evStartSlot;
+              })();
+
               return (
-                <div
-                  key={`${slotIdx}-${dayIdx}`}
+                <div key={`${slotIdx}-${dayIdx}`}
                   style={{
                     height: SLOT_HEIGHT, background: bg, borderLeft,
                     borderTop: slotIdx % 2 === 0 ? '1px solid #f0f0f0' : '1px solid #f8f8f8',
-                    borderRight: '1px solid #f8f8f8', cursor: event ? 'not-allowed' : 'crosshair',
+                    borderRight: '1px solid #f8f8f8',
+                    cursor: event ? 'pointer' : 'crosshair',
                     position: 'relative', transition: 'background 0.1s',
+                    overflow: 'hidden',
                   }}
                   onMouseDown={(e) => !event && handleMouseDown(dayIdx, slotIdx, e)}
                   onTouchStart={(e) => !event && handleTouchStart(dayIdx, slotIdx, e)}
+                  onClick={(e) => event && handleEventClick(event, e)}
                 >
-                  {event && slotIdx === 0 && (
-                    <div style={{ position: 'absolute', top: 2, left: 4, fontSize: '10px', color: '#ea4335', fontWeight: 500 }}>
+                  {event && isEventFirstSlot && (
+                    <div style={{
+                      position: 'absolute', top: 2, left: 4, right: 2,
+                      fontSize: '10px', color: '#c0392b', fontWeight: 600,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      pointerEvents: 'none',
+                    }}>
                       {event.summary}
                     </div>
                   )}
@@ -270,6 +275,38 @@ export default function Calendar({ selections, onSelectionsChange, defaultMeetin
           </>
         ))}
       </div>
+
+      {popupEvent && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            left: Math.min(popupPos.x + 8, window.innerWidth - 280),
+            top: Math.min(popupPos.y + 8, window.innerHeight - 120),
+            zIndex: 9999,
+            background: '#fff',
+            border: '1px solid #e0e0e0',
+            borderRadius: '8px',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+            padding: '12px 16px',
+            minWidth: '220px',
+            maxWidth: '280px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: '#202124', lineHeight: 1.3, flex: 1 }}>
+              {popupEvent.summary}
+            </div>
+            <button
+              onClick={() => setPopupEvent(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: '18px', padding: '0 0 0 8px', lineHeight: 1 }}
+            >×</button>
+          </div>
+          <div style={{ fontSize: '13px', color: '#ea4335', fontWeight: 500 }}>
+            🕐 {formatEventTime(popupEvent)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
