@@ -47,7 +47,7 @@ export default function TextGenerator({ selections }: TextGeneratorProps) {
     switch (template) {
       case 'standard':
         lines.push('以下の日程で調整可能です：', '');
-        for (const [, sels] of grouped) {
+      for (const [, sels] of Array.from(grouped)) {
           const date = sels[0].date;
           const m = date.getMonth() + 1;
           const d = date.getDate();
@@ -62,7 +62,7 @@ export default function TextGenerator({ selections }: TextGeneratorProps) {
 
       case 'polite':
         lines.push('お忙しいところ恐れ入ります。', '下記の日程にて、ご都合いかがでしょうか。', '');
-        for (const [, sels] of grouped) {
+        for (const [, sels] of Array.from(grouped)) {
           const date = sels[0].date;
           const m = date.getMonth() + 1;
           const d = date.getDate();
@@ -76,7 +76,7 @@ export default function TextGenerator({ selections }: TextGeneratorProps) {
         break;
 
       case 'simple':
-        for (const [, sels] of grouped) {
+        for (const [, sels] of Array.from(grouped)) {
           const date = sels[0].date;
           const m = date.getMonth() + 1;
           const d = date.getDate();
@@ -90,7 +90,7 @@ export default function TextGenerator({ selections }: TextGeneratorProps) {
 
       case 'english':
         lines.push('I am available at the following times:', '');
-        for (const [, sels] of grouped) {
+        for (const [, sels] of Array.from(grouped)) {
           const date = sels[0].date;
           const dayName = dayNamesEn[date.getDay()];
           const monthName = monthNamesEn[date.getMonth()];
