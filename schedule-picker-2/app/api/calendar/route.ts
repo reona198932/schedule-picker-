@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     const data = await response.json();
 
     // イベント情報を整形して返す
-    const events = (data.items || []).map((event: any) => ({
+    const events = (data.items || []).filter((event: any) => !!event.start?.dateTime).map((event: any) => ({
       id: event.id,
       summary: event.summary || '(予定あり)',
       start: event.start?.dateTime || event.start?.date,
